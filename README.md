@@ -36,14 +36,6 @@ features:
 - [x] pubsub
 
 
-write some random bytes into file for secret generation
----------------
-```
-head -c 100 /dev/urandom > /root/.devguard/random_bytes
-
-```
-
-
 testing lossy networks
 ---------------
 
