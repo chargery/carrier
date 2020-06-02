@@ -12,23 +12,22 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::{Read, Write};
 use std::mem;
-use toml;
 use std::os::unix::fs::OpenOptionsExt;
-
+use toml;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Protocol {
-    pub min_latency:            Option<u64>,
-    pub max_tlps:               Option<u16>,
-    pub max_rtos:               Option<u16>,
-    pub reordering_threshold:   Option<u64>,
-    pub time_loss_detection:    Option<bool>,
-    pub min_tlp_timeout:        Option<u64>,
-    pub min_rto_timeout:        Option<u64>,
-    pub stream_rx_queue:        Option<u64>,
-    pub stream_tx_queue:        Option<usize>,
-    pub p2p:                    Option<bool>,
-    pub local_port:             Option<u16>,
+    pub min_latency:          Option<u64>,
+    pub max_tlps:             Option<u16>,
+    pub max_rtos:             Option<u16>,
+    pub reordering_threshold: Option<u64>,
+    pub time_loss_detection:  Option<bool>,
+    pub min_tlp_timeout:      Option<u64>,
+    pub min_rto_timeout:      Option<u64>,
+    pub stream_rx_queue:      Option<u64>,
+    pub stream_tx_queue:      Option<usize>,
+    pub p2p:                  Option<bool>,
+    pub local_port:           Option<u16>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -52,8 +51,8 @@ pub struct SubscriberConfigToml {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Axon {
-    pub path:   String,
-    pub exec:   Vec<String>,
+    pub path: String,
+    pub exec: Vec<String>,
 }
 
 #[derive(Deserialize, Default, Serialize)]
@@ -72,16 +71,14 @@ pub struct ConfigToml {
     pub protocol:  Option<Protocol>,
 }
 
-
 pub fn persistence_dir() -> std::path::PathBuf {
     #[cfg(feature = "openwrt")]
     {
-        let gdir : std::path::PathBuf = "/etc/config/devguard/".into();
+        let gdir: std::path::PathBuf = "/etc/config/devguard/".into();
         std::fs::create_dir_all(&gdir).expect(&format!("cannot create {:?}", gdir));
 
         let cf = gdir.join("carrier.toml");
-        let of =
-            dirs::home_dir()
+        let of = dirs::home_dir()
             .unwrap_or("/root/".into())
             .join(".devguard/carrier.toml");
 
@@ -89,7 +86,7 @@ pub fn persistence_dir() -> std::path::PathBuf {
             match std::fs::copy(&of, &cf) {
                 Ok(_) => {
                     log::warn!("config file {:?} was copied to new location {:?}", of, cf);
-                },
+                }
                 Err(_) => {
                     return of.parent().unwrap().into();
                 }
@@ -98,17 +95,11 @@ pub fn persistence_dir() -> std::path::PathBuf {
 
         return gdir;
     }
-    #[cfg(target_os = "android",)]
-    let gdir =  {
-        "/data/.devguard/".into()
-    };
+    #[cfg(target_os = "android")]
+    let gdir = { "/data/.devguard/".into() };
     #[cfg(not(target_os = "android",))]
     let gdir = {
-
-        let gdir =
-            dirs::home_dir()
-            .unwrap_or("/root/".into())
-            .join(".devguard/");
+        let gdir = dirs::home_dir().unwrap_or("/root/".into()).join(".devguard/");
         gdir
     };
     std::fs::create_dir_all(&gdir).expect(&format!("cannot create {:?}", gdir));
@@ -160,46 +151,86 @@ impl ConfigToml {
                         return Ok(identity::Secret::from_array(b));
                     }
                 } else if s.get(1) == Some(&"efi") {
-                #[cfg(feature = "uefi")]
-                {
-                    info!("reading secret from UEFI");
-                    let path = "/sys/firmware/efi/efivars/DevguardIdentity-287d44ea-82f4-11e9-bd4d-d0509993593e";
+                    #[cfg(feature = "uefi")]
+                    {
+                        info!("reading secret from UEFI");
+                        let path = "/sys/firmware/efi/efivars/DevguardIdentity-287d44ea-82f4-11e9-bd4d-d0509993593e";
 
-                    if std::fs::metadata(path).is_err() {
-                        let mut b = [0u8; 68];
-                        b[0] = 0x7;
-                        firstgen_identity(&mut b[4..]);
+                        if std::fs::metadata(path).is_err() {
+                            let mut b = [0u8; 68];
+                            b[0] = 0x7;
+                            firstgen_identity(&mut b[4..]);
+                            let mut f = OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .open(path)
+                                .expect(&format!("cannot open {}", path));
+                            f.write(&b)?;
+                        }
+
                         let mut f = OpenOptions::new()
-                            .write(true)
-                            .create(true)
+                            .read(true)
                             .open(path)
                             .expect(&format!("cannot open {}", path));
-                        f.write(&b)?;
-                    }
 
-                    let mut f = OpenOptions::new()
-                        .read(true)
-                        .open(path)
-                        .expect(&format!("cannot open {}", path));
+                        let mut bb = [0u8; 68];
+                        f.read_exact(&mut bb)?;
+                        let mut b = [0u8; 32];
+                        b.copy_from_slice(&bb[4..36]);
 
-                    let mut bb = [0u8; 68];
-                    f.read_exact(&mut bb)?;
-                    let mut b = [0u8; 32];
-                    b.copy_from_slice(&bb[4..36]);
-
-                    if let Some(xor) = s.get(2) {
-                        let s2: identity::Secret = xor.parse()?;
-                        let b2 = s2.as_bytes();
-                        for i in 0..32 {
-                            b[i] ^= b2[i];
+                        if let Some(xor) = s.get(2) {
+                            let s2: identity::Secret = xor.parse()?;
+                            let b2 = s2.as_bytes();
+                            for i in 0..32 {
+                                b[i] ^= b2[i];
+                            }
                         }
+
+                        return Ok(identity::Secret::from_array(b));
                     }
 
-                    return Ok(identity::Secret::from_array(b));
-                }
+                    return Err(Error::NoSecrets);
+                } else if s.get(1) == Some(&"partition") {
+                    {
+                        info!("reading secret from partition");
+                        let path = "/dev/mmcblk0p3";
 
-                return Err(Error::NoSecrets);
-            }}
+                        if std::fs::metadata(path).is_err() {
+                            let mut b = [0u8; 68];
+                            b[0] = 0x7;
+                            firstgen_identity(&mut b[4..]);
+                            let mut f = OpenOptions::new()
+                                .write(true)
+                                .create(true)
+                                .open(path)
+                                .expect(&format!("cannot open {}", path));
+                            f.write(&b)?;
+                        }
+
+                        let mut f = OpenOptions::new()
+                            .read(true)
+                            .open(path)
+                            .expect(&format!("cannot open {}", path));
+
+                        let mut bb = [0u8; 68];
+                        f.read_exact(&mut bb)?;
+                        let mut b = [0u8; 32];
+                        b.copy_from_slice(&bb[4..36]);
+
+                        if let Some(xor) = s.get(2) {
+                            let s2: identity::Secret = xor.parse()?;
+                            let b2 = s2.as_bytes();
+                            for i in 0..32 {
+                                b[i] ^= b2[i];
+                            }
+                        }
+
+                        return Ok(identity::Secret::from_array(b));
+                    }
+
+                    return Err(Error::NoSecrets);
+                }
+            }
 
             let s: identity::Secret = s.parse()?;
             return Ok(s);
@@ -328,10 +359,7 @@ pub struct Config {
 }
 
 pub fn load() -> Result<Config, Error> {
-
-    let filename =
-        persistence_dir()
-        .join("carrier.toml");
+    let filename = persistence_dir().join("carrier.toml");
 
     let mut buffer = String::default();
     File::open(&filename)
@@ -348,17 +376,17 @@ pub fn load() -> Result<Config, Error> {
 
     let secret = ConfigToml::secret(config.secret.as_ref())?;
     Ok(Config {
-        principal:  ConfigToml::secret(config.principal.as_ref()).ok(),
-        publish:    config.publisher(secret.identity())?,
+        principal: ConfigToml::secret(config.principal.as_ref()).ok(),
+        publish: config.publisher(secret.identity())?,
         secret,
-        keepalive:  config.keepalive,
-        subscribe:  config.subscriber()?,
-        names:      config.names()?,
-        clock:      config.clock()?,
-        broker:     config.broker()?,
-        port:       config.port,
-        protocol:   config.protocol.unwrap_or_default(),
-        axons:      config.axons.unwrap_or_default(),
+        keepalive: config.keepalive,
+        subscribe: config.subscriber()?,
+        names: config.names()?,
+        clock: config.clock()?,
+        broker: config.broker()?,
+        port: config.port,
+        protocol: config.protocol.unwrap_or_default(),
+        axons: config.axons.unwrap_or_default(),
     })
 }
 
@@ -378,22 +406,21 @@ impl Config {
     pub fn new(secret: identity::Secret) -> Self {
         Self {
             secret,
-            broker:     Self::default_brokers(),
-            principal:  Default::default(),
-            keepalive:  Default::default(),
-            publish:    Default::default(),
-            subscribe:  Default::default(),
-            names:      Default::default(),
-            clock:      Default::default(),
-            port:       Default::default(),
-            protocol:   Default::default(),
-            axons:      Default::default(),
+            broker: Self::default_brokers(),
+            principal: Default::default(),
+            keepalive: Default::default(),
+            publish: Default::default(),
+            subscribe: Default::default(),
+            names: Default::default(),
+            clock: Default::default(),
+            port: Default::default(),
+            protocol: Default::default(),
+            axons: Default::default(),
         }
     }
 }
 
 pub fn setup() -> Result<(), Error> {
-
     let persistence_dir = persistence_dir();
     std::fs::create_dir_all(&persistence_dir).expect(&format!("create dir {:?}", persistence_dir));
     let filename = persistence_dir.join("carrier.toml");
@@ -402,10 +429,7 @@ pub fn setup() -> Result<(), Error> {
         let mut buffer = String::default();
         f.read_to_string(&mut buffer)
             .expect(&format!("cannot read config file {:?}", filename));
-        toml::from_str(&buffer).expect(&format!(
-            "cannot parse config file {:?}",
-            filename
-        ))
+        toml::from_str(&buffer).expect(&format!("cannot parse config file {:?}", filename))
     } else {
         ConfigToml::default()
     };
@@ -416,7 +440,7 @@ pub fn setup() -> Result<(), Error> {
 
     if config.publish.is_none() {
         let xsecret = identity::Secret::gen();
-        config.publish = Some(PublisherConfigToml{
+        config.publish = Some(PublisherConfigToml {
             shadow: xsecret.address().to_string(),
             secret: Some(xsecret.to_string()),
         });
@@ -425,16 +449,14 @@ pub fn setup() -> Result<(), Error> {
     let secret: identity::Secret = config.secret.as_ref().unwrap().parse().unwrap();
     println!("identity: {}", secret.identity());
 
-    let shadow : identity::Address = config.publish.as_ref().unwrap().shadow.parse().unwrap();
+    let shadow: identity::Address = config.publish.as_ref().unwrap().shadow.parse().unwrap();
     println!("shadow: {}", shadow);
     if let Some(secret) = &config.publish.as_ref().unwrap().secret {
-        let secret : identity::Secret = secret.parse().unwrap();
+        let secret: identity::Secret = secret.parse().unwrap();
         println!("shadow-secret: {}", secret.to_string());
     }
 
     let s = toml::to_vec(&config).unwrap();
-
-
 
     let mut f = OpenOptions::new()
         .create(true)
@@ -449,39 +471,34 @@ pub fn setup() -> Result<(), Error> {
     Ok(())
 }
 
-
 pub fn authorize(identity: identity::Identity, resource: String) -> Result<(), Error> {
-    let filename =
-        persistence_dir()
-        .join("carrier.toml");
+    let filename = persistence_dir().join("carrier.toml");
 
     let mut buffer = String::default();
-    File::open(&filename)?
-        .read_to_string(&mut buffer)?;
+    File::open(&filename)?.read_to_string(&mut buffer)?;
 
     let mut config: ConfigToml = match toml::from_str(&buffer) {
         Ok(v) => v,
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)).into()),
     };
 
-    if  config.authorize.is_none() {
+    if config.authorize.is_none() {
         config.authorize = Some(Vec::new());
     }
 
     for auth in config.authorize.as_ref().unwrap() {
         if auth.identity == identity.to_string() {
             println!("{} already authorized", identity);
-            return Ok(())
+            return Ok(());
         }
     }
 
-    config.authorize.as_mut().unwrap().push(AuthorizationToml{
+    config.authorize.as_mut().unwrap().push(AuthorizationToml {
         identity: identity.to_string(),
         resource,
     });
 
     let s = toml::to_vec(&config).unwrap();
-
 
     // make sure the config still parses before writing
     match toml::from_slice::<ConfigToml>(&s) {
@@ -491,7 +508,6 @@ pub fn authorize(identity: identity::Identity, resource: String) -> Result<(), E
             return Err(std::io::Error::new(std::io::ErrorKind::Other, e).into());
         }
     };
-
 
     let mut f = OpenOptions::new()
         .create(true)
@@ -504,22 +520,18 @@ pub fn authorize(identity: identity::Identity, resource: String) -> Result<(), E
     Ok(())
 }
 
-
 pub fn deauthorize(identity: identity::Identity) -> Result<(), Error> {
-    let filename =
-        persistence_dir()
-        .join("carrier.toml");
+    let filename = persistence_dir().join("carrier.toml");
 
     let mut buffer = String::default();
-    File::open(&filename)?
-        .read_to_string(&mut buffer)?;
+    File::open(&filename)?.read_to_string(&mut buffer)?;
 
     let mut config: ConfigToml = match toml::from_str(&buffer) {
         Ok(v) => v,
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::Other, e).into()),
     };
 
-    if  config.authorize.is_none() {
+    if config.authorize.is_none() {
         config.authorize = Some(Vec::new());
     }
 
@@ -542,7 +554,6 @@ pub fn deauthorize(identity: identity::Identity) -> Result<(), Error> {
         Err(e) => return Err(std::io::Error::new(std::io::ErrorKind::Other, e).into()),
     };
 
-
     let mut f = OpenOptions::new()
         .create(true)
         .write(true)
@@ -554,11 +565,13 @@ pub fn deauthorize(identity: identity::Identity) -> Result<(), Error> {
     Ok(())
 }
 
-
-const PREASSIGNED_FROM_FILE : &'static str = "/.devguard-pre-assigned-secret";
+const PREASSIGNED_FROM_FILE: &'static str = "/.devguard-pre-assigned-secret";
 fn firstgen_identity(mut b: &mut [u8]) {
     if let Ok(f) = std::fs::read_to_string(PREASSIGNED_FROM_FILE) {
-        let secret = f.trim().parse::<identity::Secret>().expect("/.devguard-pre-assigned-secret is not a valid secret");
+        let secret = f
+            .trim()
+            .parse::<identity::Secret>()
+            .expect("/.devguard-pre-assigned-secret is not a valid secret");
         b.write_all(secret.as_bytes()).unwrap();
         std::fs::remove_file(PREASSIGNED_FROM_FILE).ok();
         return;
