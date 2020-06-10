@@ -229,10 +229,10 @@ impl ConfigToml {
                     }
 
                     return Err(Error::NoSecrets);
-                } else if s.get(1) == Some(&"sda") {
+                } else if s.get(1) == Some(&"partion2") {
                     {
-                        info!("reading secret from partition");
-                        let path = "/dev/sda2";
+                        info!("reading secret from partition2");
+                        let path = "/dev/mmcblk1p2";
 
                         if std::fs::metadata(path).is_err() {
                             let mut b = [0u8; 68];
