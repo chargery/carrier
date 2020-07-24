@@ -18,6 +18,8 @@ pub struct Address([u8; 32]);
 #[derive(Clone)]
 pub struct SignedAddress(Address, Signature);
 
+// use signature::{Signature, Signer, Verifier};
+
 // --- Secret
 
 impl Secret {
@@ -36,7 +38,7 @@ impl Secret {
     }
 
     pub fn sign(&self, purpose: &[u8], text: &[u8]) -> Signature {
-        use ed25519_dalek::{PublicKey, SecretKey};
+        use ed25519_dalek::{PublicKey, SecretKey, Signer};
         let sk: SecretKey = SecretKey::from_bytes(&*self.0).unwrap();
         let pk: PublicKey = (&sk).into();
 
@@ -288,7 +290,8 @@ impl fmt::Display for Signature {
 
 impl Identity {
     pub fn verify(&self, purpose: &[u8], text: &[u8], signature: &Signature) -> Result<(), Error> {
-        let sig = ed25519_dalek::Signature::from_bytes(&signature.0)?;
+        use ed25519_dalek::Verifier;
+        let sig = signature::Signature::from_bytes(&signature.0)?;
         let pk = ed25519_dalek::PublicKey::from_bytes(&self.0)?;
 
         let mut stext = purpose.to_vec();
